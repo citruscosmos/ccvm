@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git *)",
-      "Bash(bash -n \"C:\\\\Users\\\\citru\\\\Documents\\\\ccvm\\\\setup.sh\")",
-      "Bash(shellcheck \"C:\\\\Users\\\\citru\\\\Documents\\\\ccvm\\\\setup.sh\")"
-    ]
-  }
-}
