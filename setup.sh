@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --help              Show this message"
       echo "  --skip <step>       Skip an optional step (can repeat)."
-      echo "                      Skippable: ssh, chromium, apikey, tmux"
+      echo "                      Skippable: ssh, chromium, auth, tmux"
       echo "                      Core steps cannot be skipped."
       exit 0
       ;;
@@ -40,9 +40,10 @@ while [[ $# -gt 0 ]]; do
         ssh)      _CLI_SKIP_SSH=1 ;;
         chromium) _CLI_SKIP_CHROMIUM=1 ;;
         apikey)   _CLI_SKIP_APIKEY=1 ;;
+        auth)     _CLI_SKIP_APIKEY=1 ;;
         tmux)     _CLI_SKIP_TMUX=1 ;;
         *)
-          echo "Invalid --skip step: '${2:-}'. Valid steps: ssh, chromium, apikey, tmux"
+          echo "Invalid --skip step: '${2:-}'. Valid steps: ssh, chromium, auth, tmux"
           exit 1
           ;;
       esac
@@ -83,7 +84,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 CURRENT_STEP=0
-TOTAL_STEPS=12
+TOTAL_STEPS=13
 STEP_START_TIME=0
 TOTAL_START_TIME=$(date +%s)
 
@@ -178,14 +179,37 @@ success "Base packages installed"
 # STEP 2: Locale configuration
 # ─────────────────────────────────────────────
 _step_header
-info "Configuring locale (en_US.UTF-8)..."
+info "Configuring locale..."
+
+# Ensure Japanese locale definitions are installed (minimal Ubuntu images may lack them)
+sudo apt-get install -y -q language-pack-ja 2>/dev/null || warn "language-pack-ja unavailable — Japanese locale may not be available"
+
+# Always generate both locales
 sudo locale-gen en_US.UTF-8
-sudo update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+sudo locale-gen ja_JP.UTF-8 2>/dev/null || warn "ja_JP.UTF-8 locale generation failed — Japanese not available"
 
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+# Prompt for default language
+echo ""
+echo "  Select default system language:"
+echo "  [1] English (en_US.UTF-8)"
+echo "  [2] 日本語 (ja_JP.UTF-8)"
+read -rp "  Choice [1]: " LOCALE_CHOICE
+LOCALE_CHOICE=${LOCALE_CHOICE:-1}
 
-success "Locale configured"
+case "$LOCALE_CHOICE" in
+  2)
+    sudo update-locale LANG=ja_JP.UTF-8 LC_ALL=ja_JP.UTF-8
+    export LANG=ja_JP.UTF-8
+    export LC_ALL=ja_JP.UTF-8
+    success "Locale configured: ja_JP.UTF-8 (en_US.UTF-8 also available)"
+    ;;
+  *)
+    sudo update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    export LC_ALL=en_US.UTF-8
+    success "Locale configured: en_US.UTF-8 (ja_JP.UTF-8 also available)"
+    ;;
+esac
 
 # ─────────────────────────────────────────────
 # STEP 3: Git global configuration
@@ -417,36 +441,86 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# STEP 10: Anthropic API key configuration
+# STEP 10: Claude Code authentication
 # ─────────────────────────────────────────────
-# On a headless server, browser-based OAuth login is unavailable.
-# Setting ANTHROPIC_API_KEY enables automatic authentication.
-# Note: storing the key in .bashrc is a pragmatic tradeoff for headless VMs.
+# Supports two auth methods:
+#   [1] API Key — pay-as-you-go billing via console.anthropic.com
+#   [2] claude.ai Login — OAuth device flow, uses Pro ($20/mo) or Max ($100/mo) plan
+# On a headless server, the OAuth flow still works: claude login prints a URL
+# and code you can open on any device with a browser.
 _step_header
 if [[ "$SKIP_APIKEY" -eq 1 ]]; then
-  warn "API key configuration skipped (--skip apikey or SKIP_APIKEY=1)"
+  warn "Authentication setup skipped (--skip auth / --skip apikey or SKIP_APIKEY=1)"
 else
-  info "Configuring Anthropic API key..."
+  info "Configuring Claude Code authentication..."
 
-  if [[ -f "$BASHRC" ]] && grep -q "ANTHROPIC_API_KEY" "$BASHRC" 2>/dev/null; then
-    warn "ANTHROPIC_API_KEY is already configured in .bashrc"
+  # Check if already authenticated
+  _AUTH_ALREADY_DONE=0
+  if claude --version &>/dev/null; then
+    if claude whoami &>/dev/null 2>&1; then
+      _AUTH_ALREADY_DONE=1
+    elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+      _AUTH_ALREADY_DONE=1
+    elif [[ -f "$HOME/.claude/credentials.json" ]]; then
+      _AUTH_ALREADY_DONE=1
+    fi
+  fi
+
+  if [[ "$_AUTH_ALREADY_DONE" -eq 1 ]]; then
+    warn "Claude Code is already authenticated"
   else
     echo ""
-    echo "  Enter your Anthropic API key (input will not be displayed)."
-    echo "  Get your key at: https://console.anthropic.com"
-    echo "  Press Enter to skip and configure later."
-    read -rsp "  ANTHROPIC_API_KEY: " ANTHROPIC_API_KEY_INPUT
+    echo "  Claude Code has two authentication methods:"
     echo ""
+    echo "  [1] API Key — pay-as-you-go billing per token"
+    echo "       Get your key at: https://console.anthropic.com"
+    echo "       Best for: developers who want usage-based billing"
+    echo ""
+    echo "  [2] claude.ai Login — uses your Pro (\$20/mo) or Max (\$100/mo) plan"
+    echo "       Opens a device auth flow (URL + code to enter in any browser)"
+    echo "       Best for: subscribers who don't have a separate API key"
+    echo ""
+    echo "  [3] Skip — configure later manually"
+    read -rp "  Choice [1]: " AUTH_CHOICE
+    AUTH_CHOICE=${AUTH_CHOICE:-1}
 
-    if [[ -n "$ANTHROPIC_API_KEY_INPUT" ]]; then
-      echo "export ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY_INPUT\"" >> "$BASHRC"
-      export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_INPUT"
-      success "ANTHROPIC_API_KEY saved to .bashrc"
-    else
-      warn "Skipped API key configuration."
-      warn "Add the following line to ~/.bashrc when ready:"
-      warn '  export ANTHROPIC_API_KEY="sk-ant-..."'
-    fi
+    case "$AUTH_CHOICE" in
+      2)
+        info "Starting claude.ai login (OAuth device flow)..."
+        info "Follow the prompts — you'll get a URL and code to open in any browser."
+        if claude login; then
+          success "Claude Code authenticated via claude.ai login"
+        else
+          warn "claude login did not complete successfully."
+          warn "Run 'claude login' manually or set ANTHROPIC_API_KEY later."
+        fi
+        ;;
+      3)
+        warn "Skipped authentication."
+        warn "Run 'claude login' or set ANTHROPIC_API_KEY later."
+        ;;
+      *)
+        # API key prompt
+        if [[ -f "$BASHRC" ]] && grep -q "ANTHROPIC_API_KEY" "$BASHRC" 2>/dev/null; then
+          warn "ANTHROPIC_API_KEY is already configured in .bashrc"
+        else
+          echo ""
+          echo "  Enter your Anthropic API key (input will not be displayed)."
+          echo "  Get your key at: https://console.anthropic.com"
+          echo "  Press Enter to skip and configure later."
+          read -rsp "  ANTHROPIC_API_KEY: " ANTHROPIC_API_KEY_INPUT
+          echo ""
+
+          if [[ -n "$ANTHROPIC_API_KEY_INPUT" ]]; then
+            echo "export ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY_INPUT\"" >> "$BASHRC"
+            export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_INPUT"
+            success "ANTHROPIC_API_KEY saved to .bashrc"
+          else
+            warn "Skipped API key configuration."
+          fi
+        fi
+        ;;
+    esac
   fi
 fi
 
@@ -495,7 +569,36 @@ EOF
 fi
 
 # ─────────────────────────────────────────────
-# STEP 12: Verify installation
+# STEP 12: Model backend launcher
+# ─────────────────────────────────────────────
+_step_header
+info "Installing claude-model (DeepSeek launcher)..."
+
+MODEL_TOOL_SRC="$(dirname "$0")/scripts/claude-model"
+MODEL_TOOL_DST="$HOME/.local/bin/claude-model"
+
+if [[ -f "$MODEL_TOOL_SRC" ]]; then
+  mkdir -p "$HOME/.local/bin"
+  cp "$MODEL_TOOL_SRC" "$MODEL_TOOL_DST"
+  chmod +x "$MODEL_TOOL_DST"
+  success "claude-model installed to ~/.local/bin/claude-model"
+  echo ""
+  echo "  Usage:"
+  echo "    claude-model deepseek   # Launch Claude Code with DeepSeek v4"
+  echo "    claude                  # Launch Claude Code with Anthropic (default)"
+else
+  warn "scripts/claude-model not found — skipping"
+fi
+
+# Ensure ~/.local/bin is on PATH
+if [[ -f "$BASHRC" ]]; then
+  if ! grep -q ".local/bin" "$BASHRC" 2>/dev/null; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$BASHRC"
+  fi
+fi
+
+# ─────────────────────────────────────────────
+# STEP 13: Verify installation
 # ─────────────────────────────────────────────
 _step_header
 echo ""
@@ -562,17 +665,20 @@ echo "  1. Reload your shell to apply all settings:"
 echo "       source ~/.bashrc"
 echo "       # or open a new terminal session"
 echo ""
-echo "  2. Authenticate Claude Code:"
-echo "       claude"
-echo "       # On a headless server, browser login is unavailable."
-echo "       # If ANTHROPIC_API_KEY is set, authentication is automatic."
+echo "  2. Authentication was configured during setup."
+echo "       To change auth method: claude login (OAuth) or set ANTHROPIC_API_KEY"
 echo ""
-echo "  3. Run gstack initial setup inside Claude Code:"
+echo "  3. Launch Claude Code:"
+echo "       claude                  # Anthropic (default)"
+echo "       claude-model deepseek   # DeepSeek v4"
+echo ""
+echo "  4. Run gstack initial setup inside Claude Code:"
 echo "       claude  # then run one of:"
 echo "       /gstack-setup"
 echo "       /gbrain-onboarding"
+
 echo ""
-echo "  4. Verify environment health:"
+echo "  5. Verify environment health:"
 echo "       claude doctor"
 echo "       claude --version"
 echo ""

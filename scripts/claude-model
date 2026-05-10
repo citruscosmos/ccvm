@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# =============================================================================
+# claude-model — session-only DeepSeek v4 launcher for Claude Code
+#
+# Usage:
+#   claude-model deepseek [args...]   Launch Claude Code with DeepSeek v4
+#   claude                            Launch Claude Code with Anthropic (default)
+#
+# The script sets DeepSeek env vars only for the duration of that claude process.
+# No persistent state, no .bashrc editing. Plain "claude" always uses Anthropic.
+# =============================================================================
+
+set -euo pipefail
+
+DEEPSEEK_KEY_FILE="$HOME/.claude/deepseek-key"
+
+usage() {
+  echo "Usage:"
+  echo "  claude-model deepseek [args...]   Launch Claude Code with DeepSeek v4"
+  echo "  claude                             Launch Claude Code with Anthropic (default)"
+  exit 1
+}
+
+case "${1:-}" in
+  deepseek)
+    shift
+    # Prompt for API key if not saved
+    if [[ ! -f "$DEEPSEEK_KEY_FILE" ]]; then
+      echo "DeepSeek API key not found."
+      echo "Get your key at: https://platform.deepseek.com/api_keys"
+      read -rsp "DeepSeek API key: " DEEPSEEK_KEY
+      echo ""
+      if [[ -z "$DEEPSEEK_KEY" ]]; then
+        echo "No key provided. Aborting."
+        exit 1
+      fi
+      # Validate: non-empty, starts with sk-, at least 32 chars
+      if [[ ! "$DEEPSEEK_KEY" =~ ^sk- ]] || [[ "${#DEEPSEEK_KEY}" -lt 32 ]]; then
+        echo "Invalid key format. DeepSeek keys start with 'sk-' and are 32+ characters."
+        exit 1
+      fi
+      mkdir -p "$HOME/.claude"
+      echo "$DEEPSEEK_KEY" > "$DEEPSEEK_KEY_FILE"
+      chmod 600 "$DEEPSEEK_KEY_FILE"
+      echo "Key saved to $DEEPSEEK_KEY_FILE"
+    fi
+    DEEPSEEK_KEY=$(cat "$DEEPSEEK_KEY_FILE")
+    export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+    export ANTHROPIC_AUTH_TOKEN="$DEEPSEEK_KEY"
+    export ANTHROPIC_MODEL=deepseek-v4-pro
+    export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro
+    export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
+    export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
+    export CLAUDE_CODE_EFFORT_LEVEL=max
+    exec claude "$@"
+    ;;
+  *)
+    usage
+    ;;
+esac
