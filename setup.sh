@@ -180,8 +180,13 @@ sudo apt-get install -y -q \
   libxfixes3 \
   libxrandr2 \
   libgbm1 \
-  libxkbcommon0 \
-  libasound2
+  libxkbcommon0
+
+# libasound2 was renamed to libasound2t64 on Ubuntu 24.04
+info "Installing audio library..."
+sudo apt-get install -y -q libasound2t64 2>/dev/null || \
+  sudo apt-get install -y -q libasound2 2>/dev/null || \
+  warn "Audio library (libasound2) unavailable — Chromium audio may not work"
 
 success "Base packages installed"
 
