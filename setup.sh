@@ -390,6 +390,7 @@ else
   info "Running: git clone https://github.com/garrytan/gstack.git $GSTACK_DIR"
   git clone https://github.com/garrytan/gstack.git "$GSTACK_DIR"
   cd "$GSTACK_DIR"
+	  info "Running gstack setup (builds dependencies — may take several minutes)..."
   ./setup
 fi
 
