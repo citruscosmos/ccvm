@@ -7,7 +7,7 @@ Single-command provisioning for Ubuntu 22.04/24.04 LTS (Server or Desktop) with 
 ```bash
 git clone https://github.com/citruscosmos/ccvm.git
 cd ccvm
-./setup.sh
+./setup
 ```
 
 `source ~/.bashrc` when done.
@@ -27,10 +27,10 @@ cd ccvm
 ## Options
 
 ```bash
-./setup.sh --help                 # Show usage
-./setup.sh --skip chromium        # Skip Chromium
-./setup.sh --skip tmux            # Skip tmux config
-SKIP_CHROMIUM=1 ./setup.sh        # Equivalent via env var
+./setup --help                 # Show usage
+./setup --skip chromium        # Skip Chromium
+./setup --skip tmux            # Skip tmux config
+SKIP_CHROMIUM=1 ./setup        # Equivalent via env var
 ```
 
 ## Model backends

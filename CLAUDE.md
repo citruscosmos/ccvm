@@ -10,18 +10,18 @@ This repository hosts a single provisioning script that sets up Ubuntu 22.04/24.
 
 ```bash
 # Lint the scripts (shellcheck)
-shellcheck setup.sh scripts/claude-model
+shellcheck setup claude-model
 
 # Dry-run syntax check (does not execute commands)
-bash -n setup.sh
+bash -n setup
 
 # Run the script on a target VM
-./setup.sh
+./setup
 ```
 
 ## Architecture
 
-`setup.sh` runs 12 sequential steps, each idempotent (skips if already done):
+`setup` runs 12 sequential steps, each idempotent (skips if already done):
 
 1. **System packages** — apt-get update + install base tools, headless Chromium libs
 2. **Locale** — generates en_US.UTF-8 and ja_JP.UTF-8; prompts for default language
@@ -36,7 +36,7 @@ bash -n setup.sh
 11. **claude-model** — installs session-only DeepSeek v4 launcher to `~/.local/bin/claude-model`
 12. **Verification** — checks every tool was installed; shows next steps
 
-`scripts/claude-model` is a standalone launcher that sets DeepSeek env vars and `exec`s `claude`. Session-only — no persistent state. Run `claude-model deepseek` for DeepSeek v4, plain `claude` for Anthropic (default).
+`claude-model` is a standalone launcher that sets DeepSeek env vars and `exec`s `claude`. Session-only — no persistent state. Run `claude-model deepseek` for DeepSeek v4, plain `claude` for Anthropic (default).
 
 Shell safety: `set -euo pipefail`. Root guard (exits if run as root). All destructive steps check for existing state before acting.
 

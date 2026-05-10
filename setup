@@ -22,7 +22,7 @@ _CLI_SKIP_TMUX=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help)
-      echo "Usage: ./setup.sh [OPTIONS]"
+      echo "Usage: ./setup [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  --help              Show this message"
