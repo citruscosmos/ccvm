@@ -7,11 +7,10 @@ Single-command provisioning for Ubuntu 22.04/24.04 LTS (Server or Desktop) with 
 ```bash
 git clone https://github.com/citruscosmos/ccvm.git
 cd ccvm
-chmod +x setup.sh
 ./setup.sh
 ```
 
-Reboot or `source ~/.bashrc` when done.
+`source ~/.bashrc` when done.
 
 ## What it installs
 
@@ -31,16 +30,8 @@ Reboot or `source ~/.bashrc` when done.
 ./setup.sh --help                 # Show usage
 ./setup.sh --skip chromium        # Skip Chromium
 ./setup.sh --skip tmux            # Skip tmux config
-./setup.sh --skip auth            # Skip authentication setup
 SKIP_CHROMIUM=1 ./setup.sh        # Equivalent via env var
 ```
-
-## Authentication
-
-During setup you choose one of:
-
-1. **API key** — pay-as-you-go billing via [console.anthropic.com](https://console.anthropic.com)
-2. **claude.ai login** — uses your Pro ($20/mo) or Max ($100/mo) subscription
 
 ## Model backends
 
