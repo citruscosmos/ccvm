@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup_claude_vm.sh
-# Ubuntu Server VM Setup Script
+# setup.sh
+# Ubuntu Setup Script (Server/Desktop, 22.04/24.04 LTS)
 # Target: Claude Code + gstack + related tools
-# Tested on: Ubuntu 22.04 LTS / 24.04 LTS
 #
 # Usage:
-#   chmod +x setup_claude_vm.sh
-#   ./setup_claude_vm.sh
-#   ./setup_claude_vm.sh --skip chromium --skip tmux
-#   SKIP_APIKEY=1 ./setup_claude_vm.sh
+#   ./setup.sh
+#   ./setup.sh --skip chromium --skip tmux
 # =============================================================================
 
 set -euo pipefail
@@ -20,7 +17,6 @@ set -euo pipefail
 # Internal variables for --skip (CLI takes priority over env vars)
 _CLI_SKIP_SSH=0
 _CLI_SKIP_CHROMIUM=0
-_CLI_SKIP_APIKEY=0
 _CLI_SKIP_TMUX=0
 
 while [[ $# -gt 0 ]]; do
@@ -31,7 +27,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --help              Show this message"
       echo "  --skip <step>       Skip an optional step (can repeat)."
-      echo "                      Skippable: ssh, chromium, auth, tmux"
+      echo "                      Skippable: ssh, chromium, tmux"
       echo "                      Core steps cannot be skipped."
       exit 0
       ;;
@@ -39,11 +35,9 @@ while [[ $# -gt 0 ]]; do
       case "${2:-}" in
         ssh)      _CLI_SKIP_SSH=1 ;;
         chromium) _CLI_SKIP_CHROMIUM=1 ;;
-        apikey)   _CLI_SKIP_APIKEY=1 ;;
-        auth)     _CLI_SKIP_APIKEY=1 ;;
         tmux)     _CLI_SKIP_TMUX=1 ;;
         *)
-          echo "Invalid --skip step: '${2:-}'. Valid steps: ssh, chromium, auth, tmux"
+          echo "Invalid --skip step: '${2:-}'. Valid steps: ssh, chromium, tmux"
           exit 1
           ;;
       esac
@@ -60,18 +54,15 @@ done
 # Capture env vars before overwriting them with CLI values.
 _ENV_SKIP_SSH="${SKIP_SSH:-0}"
 _ENV_SKIP_CHROMIUM="${SKIP_CHROMIUM:-0}"
-_ENV_SKIP_APIKEY="${SKIP_APIKEY:-0}"
 _ENV_SKIP_TMUX="${SKIP_TMUX:-0}"
 
 SKIP_SSH=$_CLI_SKIP_SSH
 SKIP_CHROMIUM=$_CLI_SKIP_CHROMIUM
-SKIP_APIKEY=$_CLI_SKIP_APIKEY
 SKIP_TMUX=$_CLI_SKIP_TMUX
 
 # For steps where --skip was NOT passed, check env var
 if [[ "$_CLI_SKIP_SSH" -eq 0 ]]      && [[ "$_ENV_SKIP_SSH"      == "1" ]]; then SKIP_SSH=1; fi
 if [[ "$_CLI_SKIP_CHROMIUM" -eq 0 ]] && [[ "$_ENV_SKIP_CHROMIUM" == "1" ]]; then SKIP_CHROMIUM=1; fi
-if [[ "$_CLI_SKIP_APIKEY" -eq 0 ]]   && [[ "$_ENV_SKIP_APIKEY"   == "1" ]]; then SKIP_APIKEY=1; fi
 if [[ "$_CLI_SKIP_TMUX" -eq 0 ]]     && [[ "$_ENV_SKIP_TMUX"     == "1" ]]; then SKIP_TMUX=1; fi
 
 # ─────────────────────────────────────────────
@@ -84,7 +75,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 CURRENT_STEP=0
-TOTAL_STEPS=13
+TOTAL_STEPS=12
 STEP_START_TIME=0
 TOTAL_START_TIME=$(date +%s)
 
@@ -435,91 +426,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# STEP 10: Claude Code authentication
-# ─────────────────────────────────────────────
-# Supports two auth methods:
-#   [1] API Key — pay-as-you-go billing via console.anthropic.com
-#   [2] claude.ai Login — OAuth device flow, uses Pro ($20/mo) or Max ($100/mo) plan
-# On a headless server, the OAuth flow still works: claude login prints a URL
-# and code you can open on any device with a browser.
-_step_header
-if [[ "$SKIP_APIKEY" -eq 1 ]]; then
-  warn "Authentication setup skipped (--skip auth / --skip apikey or SKIP_APIKEY=1)"
-else
-  info "Configuring Claude Code authentication..."
-
-  # Check if already authenticated
-  _AUTH_ALREADY_DONE=0
-  if claude --version &>/dev/null; then
-    if claude whoami &>/dev/null 2>&1; then
-      _AUTH_ALREADY_DONE=1
-    elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-      _AUTH_ALREADY_DONE=1
-    elif [[ -f "$HOME/.claude/credentials.json" ]]; then
-      _AUTH_ALREADY_DONE=1
-    fi
-  fi
-
-  if [[ "$_AUTH_ALREADY_DONE" -eq 1 ]]; then
-    warn "Claude Code is already authenticated"
-  else
-    echo ""
-    echo "  Claude Code has two authentication methods:"
-    echo ""
-    echo "  [1] API Key — pay-as-you-go billing per token"
-    echo "       Get your key at: https://console.anthropic.com"
-    echo "       Best for: developers who want usage-based billing"
-    echo ""
-    echo "  [2] claude.ai Login — uses your Pro (\$20/mo) or Max (\$100/mo) plan"
-    echo "       Opens a device auth flow (URL + code to enter in any browser)"
-    echo "       Best for: subscribers who don't have a separate API key"
-    echo ""
-    echo "  [3] Skip — configure later manually"
-    read -rp "  Choice [1]: " AUTH_CHOICE
-    AUTH_CHOICE=${AUTH_CHOICE:-1}
-
-    case "$AUTH_CHOICE" in
-      2)
-        info "Starting claude.ai login (OAuth device flow)..."
-        info "Follow the prompts — you'll get a URL and code to open in any browser."
-        if claude login; then
-          success "Claude Code authenticated via claude.ai login"
-        else
-          warn "claude login did not complete successfully."
-          warn "Run 'claude login' manually or set ANTHROPIC_API_KEY later."
-        fi
-        ;;
-      3)
-        warn "Skipped authentication."
-        warn "Run 'claude login' or set ANTHROPIC_API_KEY later."
-        ;;
-      *)
-        # API key prompt
-        if [[ -f "$BASHRC" ]] && grep -q "ANTHROPIC_API_KEY" "$BASHRC" 2>/dev/null; then
-          warn "ANTHROPIC_API_KEY is already configured in .bashrc"
-        else
-          echo ""
-          echo "  Enter your Anthropic API key (input will not be displayed)."
-          echo "  Get your key at: https://console.anthropic.com"
-          echo "  Press Enter to skip and configure later."
-          read -rsp "  ANTHROPIC_API_KEY: " ANTHROPIC_API_KEY_INPUT
-          echo ""
-
-          if [[ -n "$ANTHROPIC_API_KEY_INPUT" ]]; then
-            echo "export ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY_INPUT\"" >> "$BASHRC"
-            export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_INPUT"
-            success "ANTHROPIC_API_KEY saved to .bashrc"
-          else
-            warn "Skipped API key configuration."
-          fi
-        fi
-        ;;
-    esac
-  fi
-fi
-
-# ─────────────────────────────────────────────
-# STEP 11: tmux configuration
+# STEP 10: tmux configuration
 # ─────────────────────────────────────────────
 # Recommended for long-running Claude Code sessions on a headless server.
 _step_header
@@ -563,7 +470,7 @@ EOF
 fi
 
 # ─────────────────────────────────────────────
-# STEP 12: Model backend launcher
+# STEP 11: Model backend launcher
 # ─────────────────────────────────────────────
 _step_header
 info "Installing claude-model (DeepSeek launcher)..."
@@ -574,7 +481,6 @@ MODEL_TOOL_DST="$HOME/.local/bin/claude-model"
 if [[ -f "$MODEL_TOOL_SRC" ]]; then
   mkdir -p "$HOME/.local/bin"
   cp "$MODEL_TOOL_SRC" "$MODEL_TOOL_DST"
-  chmod +x "$MODEL_TOOL_DST"
   success "claude-model installed to ~/.local/bin/claude-model"
   echo ""
   echo "  Usage:"
@@ -592,7 +498,7 @@ if [[ -f "$BASHRC" ]]; then
 fi
 
 # ─────────────────────────────────────────────
-# STEP 13: Verify installation
+# STEP 12: Verify installation
 # ─────────────────────────────────────────────
 _step_header
 echo ""
@@ -603,7 +509,9 @@ echo "============================================================"
 # Refresh PATH before checking
 export NVM_DIR="$HOME/.nvm"
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    set +u
   source "$NVM_DIR/nvm.sh"
+    set -u
 fi
 export PATH="$HOME/.bun/bin:$HOME/.claude/bin:$PATH"
 
@@ -653,28 +561,22 @@ echo "============================================================"
 echo -e "${GREEN}  Setup complete!${NC}  (total time: ${TOTAL_ELAPSED}s)"
 echo "============================================================"
 echo ""
-echo "  Next steps:"
-echo ""
-echo "  1. Reload your shell to apply all settings:"
-echo "       source ~/.bashrc"
-echo "       # or open a new terminal session"
-echo ""
-echo "  2. Authentication was configured during setup."
-echo "       To change auth method: claude login (OAuth) or set ANTHROPIC_API_KEY"
-echo ""
-echo "  3. Launch Claude Code:"
-echo "       claude                  # Anthropic (default)"
-echo "       claude-model deepseek   # DeepSeek v4"
-echo ""
-echo "  4. Run gstack initial setup inside Claude Code:"
-echo "       claude  # then run one of:"
-echo "       /gstack-setup"
-echo "       /gbrain-onboarding"
-
-echo ""
-echo "  5. Verify environment health:"
-echo "       claude doctor"
-echo "       claude --version"
+  echo "  Next steps:"
+  echo ""
+  echo "  1. Reload your shell to apply all settings:"
+  echo "       source ~/.bashrc"
+  echo "       # or open a new terminal session"
+  echo ""
+  echo "  2. Launch Claude Code:"
+  echo "       claude                  # Anthropic (default)"
+  echo "       claude-model deepseek   # DeepSeek v4"
+  echo ""
+  echo "  3. Complete gstack setup:"
+  echo "       Follow Step 1 at: https://github.com/garrytan/gstack"
+  echo ""
+  echo "  4. Verify environment health:"
+  echo "       claude doctor"
+  echo "       claude --version"
 echo ""
 if [[ -f "${HOME}/.ssh/id_ed25519.pub" ]]; then
   echo "  !! Don't forget to register your SSH public key on GitHub:"
