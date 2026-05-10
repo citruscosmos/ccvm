@@ -356,8 +356,8 @@ info "Installing Claude Code (native installer)..."
 if command -v claude &>/dev/null; then
   warn "Claude Code already installed: $(claude --version 2>/dev/null || echo 'unknown')"
 else
-  info "Running: curl -fsSL https://claude.ai/install.sh | sh"
-  curl -fsSL https://claude.ai/install.sh | sh
+  info "Running: curl -fsSL https://claude.ai/install.sh | bash"
+  curl -fsSL https://claude.ai/install.sh | bash
   export PATH="$HOME/.claude/bin:$PATH"
   if command -v claude &>/dev/null; then
     success "Claude Code installed: $(claude --version 2>/dev/null)"
