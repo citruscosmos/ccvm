@@ -297,19 +297,24 @@ else
 fi
 
 # Activate nvm in the current session
+# nvm.sh is not compatible with `set -u` — it references unbound variables internally.
 export NVM_DIR="$HOME/.nvm"
 # shellcheck source=/dev/null
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+  set +u
   source "$NVM_DIR/nvm.sh"
+  set -u
 else
   warn "nvm.sh not found — nvm install may have failed. Skipping Node.js configuration."
 fi
 
 if ! node --version &>/dev/null; then
   if command -v nvm &>/dev/null || [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    set +u
     nvm install --lts
     nvm use --lts
     nvm alias default node
+    set -u
     success "Node.js LTS installed: $(node --version)"
   fi
 else
