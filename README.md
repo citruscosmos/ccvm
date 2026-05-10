@@ -88,8 +88,8 @@ tmux attach -t cc
 ```bash
 # Session 1: work on the ccvm repo
 tmux new-session -s ccvm -d 'cd ~/ccvm && claude'
-# Session 2: another project
-tmux new-session -s myapp -d 'cd ~/myapp && claude'
+# Session 2: another project (DeepSeek v4)
+tmux new-session -s myapp -d 'cd ~/myapp && ~/ccvm/claude-model deepseek'
 
 # Jump between them:
 tmux attach -t ccvm       # work on ccvm
