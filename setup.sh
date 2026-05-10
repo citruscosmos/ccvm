@@ -171,7 +171,17 @@ sudo apt-get install -y -q \
   python3 \
   python3-pip \
   python3-venv \
-  locales
+  locales \
+  libnss3 \
+  libatk-bridge2.0-0 \
+  libdrm2 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxfixes3 \
+  libxrandr2 \
+  libgbm1 \
+  libxkbcommon0 \
+  libasound2
 
 success "Base packages installed"
 
@@ -398,14 +408,15 @@ success "gstack installed"
 cd "$HOME"
 
 # ─────────────────────────────────────────────
-# STEP 9: Chromium + headless dependencies
+# STEP 9: Chromium browser
 # ─────────────────────────────────────────────
-# Required for gstack /browse and /qa skills on a headless server.
+# System browser for gstack /browse and /qa skills. Headless libraries
+# (libnss3, libgbm1, etc.) are already installed in Step 1.
 _step_header
 if [[ "$SKIP_CHROMIUM" -eq 1 ]]; then
   warn "Chromium setup skipped (--skip chromium or SKIP_CHROMIUM=1)"
 else
-  info "Installing Chromium (for gstack /browse and /qa skills)..."
+  info "Installing Chromium browser (for gstack /browse and /qa skills)..."
 
   if command -v chromium-browser &>/dev/null || command -v chromium &>/dev/null; then
     warn "Chromium already installed"
@@ -415,35 +426,7 @@ else
     warn "Chromium installation failed. Please install manually if needed."
   fi
 
-  # System libraries required to run Chromium in a headless environment
-  info "Installing headless Chromium dependencies..."
-  HEADLESS_LIBS_COUNT=0
-  HEADLESS_LIBS_TOTAL=10
-
-  install_lib() {
-    if sudo apt-get install -y -q "$1" 2>/dev/null; then
-      HEADLESS_LIBS_COUNT=$((HEADLESS_LIBS_COUNT + 1))
-    fi
-  }
-
-  install_lib libnss3
-  install_lib libatk-bridge2.0-0
-  install_lib libdrm2
-  install_lib libxcomposite1
-  install_lib libxdamage1
-  install_lib libxfixes3
-  install_lib libxrandr2
-  install_lib libgbm1
-  install_lib libxkbcommon0
-  install_lib libasound2
-
-  if [[ "$HEADLESS_LIBS_COUNT" -eq "$HEADLESS_LIBS_TOTAL" ]]; then
-    info "Headless libs: $HEADLESS_LIBS_COUNT/$HEADLESS_LIBS_TOTAL installed"
-  else
-    warn "Headless libs: $HEADLESS_LIBS_COUNT/$HEADLESS_LIBS_TOTAL installed — some libraries may be missing"
-  fi
-
-  success "Chromium and headless dependencies installed"
+  success "Chromium installed"
 fi
 
 # ─────────────────────────────────────────────
