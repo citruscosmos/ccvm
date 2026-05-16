@@ -17,9 +17,11 @@ cd ccvm
 | Tool | Purpose |
 |------|---------|
 | Claude Code | AI coding assistant (native installer) |
+| claude-model | Multi-provider model launcher (Python) |
 | gstack | Claude Code skill suite |
 | Node.js (LTS) | Runtime (via nvm) |
 | Bun | JavaScript runtime (gstack dependency) |
+| PyYAML | YAML config parser (claude-model dependency) |
 | Chromium | Headless browser (gstack `/browse`, `/qa`) |
 | tmux | Terminal multiplexer (persistent sessions) |
 | ripgrep, jq, htop, tree | CLI utilities |
@@ -35,12 +37,51 @@ SKIP_CHROMIUM=1 ./setup        # Equivalent via env var
 
 ## Model backends
 
+`claude-model` switches your entire AI stack with one command. It supports multiple providers, per-role model mixing, and named profiles — all driven by a YAML config file you can version-control.
+
 ```bash
-claude                  # Anthropic (default)
-claude-model deepseek   # DeepSeek v4 (session-only)
+claude-model                     # Uses "default" profile
+claude-model deepseek            # DeepSeek V4
+claude-model kimi                # Kimi K2.6 (Moonshot AI)
+claude-model glm                 # GLM-5.1 (Zhipu AI)
+claude-model mixed-via-openrouter # Cross-provider via OpenRouter
+claude                            # Anthropic (plain Claude Code)
 ```
 
-`claude-model` prompts for your DeepSeek API key on first run (stored at `~/.claude/deepseek-key`).
+### Managing profiles and keys
+
+```bash
+claude-model --list              # List available profiles
+claude-model --validate          # Check config without launching
+claude-model --init              # Write default config template
+claude-model --add-key kimi      # Save API key for a provider
+CLAUDE_MODEL_PROFILE=glm claude-model  # Env var override
+```
+
+API keys are stored per-provider at `~/.ccvm/keys/<provider>` (mode 600). The config lives at `~/.ccvm/model-profiles.yaml`.
+
+### Supported providers
+
+| Provider | Model | Base URL |
+|----------|-------|----------|
+| DeepSeek | deepseek-v4-pro, deepseek-v4-flash | `api.deepseek.com/anthropic` |
+| Kimi K2.6 | kimi-k2.6, kimi-k2.6-flash | `platform.moonshot.ai` |
+| GLM-5.1 | glm-5.1, glm-5.1-flash | `open.bigmodel.cn/api/anthropic` |
+| OpenRouter | Any (unified gateway) | `openrouter.ai/api` |
+| Anthropic | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5 | `api.anthropic.com` |
+
+### Per-role model mixing
+
+Each profile can assign different models to each Claude Code role (Opus, Sonnet, Haiku, Subagent). Example from `model-profiles.yaml`:
+
+```yaml
+profiles:
+  deepseek:
+    provider: deepseek
+    effort: max
+```
+
+Missing roles fall back automatically: sonnet→opus, haiku→sonnet, subagent→haiku.
 
 ## Running multiple Claude Code sessions with tmux
 
@@ -88,8 +129,8 @@ tmux attach -t cc
 ```bash
 # Session 1: work on the ccvm repo
 tmux new-session -s ccvm -d 'cd ~/ccvm && claude'
-# Session 2: another project (DeepSeek v4)
-tmux new-session -s myapp -d 'cd ~/myapp && ~/ccvm/claude-model deepseek'
+# Session 2: another project (Kimi K2.6)
+tmux new-session -s myapp -d 'cd ~/myapp && claude-model kimi'
 
 # Jump between them:
 tmux attach -t ccvm       # work on ccvm

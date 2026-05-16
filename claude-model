@@ -1,61 +1,335 @@
-#!/usr/bin/env bash
-# =============================================================================
-# claude-model — session-only DeepSeek v4 launcher for Claude Code
-#
-# Usage:
-#   claude-model deepseek [args...]   Launch Claude Code with DeepSeek v4
-#   claude                            Launch Claude Code with Anthropic (default)
-#
-# The script sets DeepSeek env vars only for the duration of that claude process.
-# No persistent state, no .bashrc editing. Plain "claude" always uses Anthropic.
-# =============================================================================
+#!/usr/bin/env python3
+"""Multi-provider model launcher for Claude Code.
 
-set -euo pipefail
+Usage:
+  claude-model [profile] [claude args...]
+  claude-model --help
+  claude-model --list
+  claude-model --validate
+  claude-model --init
+  claude-model --add-key <provider>
+"""
 
-DEEPSEEK_KEY_FILE="$HOME/.claude/deepseek-key"
+import argparse
+import getpass
+import os
+import sys
+from pathlib import Path
 
-usage() {
-  echo "Usage:"
-  echo "  claude-model deepseek [args...]   Launch Claude Code with DeepSeek v4"
-  echo "  claude                             Launch Claude Code with Anthropic (default)"
-  exit 1
-}
+try:
+    import yaml
+except ImportError:
+    print(
+        "python3-yaml (PyYAML) is required. Install it with:"
+        " sudo apt install python3-yaml",
+        file=sys.stderr,
+    )
+    sys.exit(7)
 
-case "${1:-}" in
-  deepseek)
-    shift
-    # Prompt for API key if not saved
-    if [[ ! -f "$DEEPSEEK_KEY_FILE" ]]; then
-      echo "DeepSeek API key not found."
-      echo "Get your key at: https://platform.deepseek.com/api_keys"
-      read -rsp "DeepSeek API key: " DEEPSEEK_KEY
-      echo ""
-      if [[ -z "$DEEPSEEK_KEY" ]]; then
-        echo "No key provided. Aborting."
-        exit 1
-      fi
-      # Validate: non-empty, starts with sk-, at least 32 chars
-      if [[ ! "$DEEPSEEK_KEY" =~ ^sk- ]] || [[ "${#DEEPSEEK_KEY}" -lt 32 ]]; then
-        echo "Invalid key format. DeepSeek keys start with 'sk-' and are 32+ characters."
-        exit 1
-      fi
-      mkdir -p "$HOME/.claude"
-      echo "$DEEPSEEK_KEY" > "$DEEPSEEK_KEY_FILE"
-      chmod 600 "$DEEPSEEK_KEY_FILE"
-      echo "Key saved to $DEEPSEEK_KEY_FILE"
-    fi
-    DEEPSEEK_KEY=$(cat "$DEEPSEEK_KEY_FILE")
-    export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-    export ANTHROPIC_AUTH_TOKEN="$DEEPSEEK_KEY"
-    export ANTHROPIC_MODEL=deepseek-v4-pro
-    export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-pro
-    export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-pro
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash
-    export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash
-    export CLAUDE_CODE_EFFORT_LEVEL=max
-    exec claude "$@"
-    ;;
-  *)
-    usage
-    ;;
-esac
+CONFIG_PATH = Path.home() / ".ccvm" / "model-profiles.yaml"
+KEYS_DIR = Path.home() / ".ccvm" / "keys"
+
+DEFAULT_CONFIG = """\
+# Provider definitions — base URLs and default model IDs
+# All providers use role-based fields: opus, sonnet, haiku, subagent.
+# Missing fields fall back: sonnet→opus, haiku→sonnet, subagent→haiku.
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com/anthropic
+    opus: deepseek-v4-pro
+    sonnet: deepseek-v4-pro
+    haiku: deepseek-v4-flash
+    subagent: deepseek-v4-flash
+  kimi:
+    base_url: https://platform.moonshot.ai
+    opus: kimi-k2.6
+    haiku: kimi-k2.6-flash
+  glm:
+    base_url: https://open.bigmodel.cn/api/anthropic
+    opus: glm-5.1
+    haiku: glm-5.1-flash
+  openrouter:
+    base_url: https://openrouter.ai/api
+    opus: openai/kimi-k2.6
+    haiku: deepseek/deepseek-v4-flash
+  anthropic:
+    base_url: https://api.anthropic.com
+    opus: claude-opus-4-7
+    sonnet: claude-sonnet-4-6
+    haiku: claude-haiku-4-5
+    subagent: claude-haiku-4-5
+
+# Named profiles — select a provider + optional per-role model overrides
+profiles:
+  default:
+    provider: deepseek
+  deepseek:
+    provider: deepseek
+    effort: max
+  kimi:
+    provider: kimi
+  glm:
+    provider: glm
+  mixed-via-openrouter:
+    provider: openrouter
+    opus: kimi/kimi-k2.6
+    haiku: deepseek/deepseek-v4-flash
+  anthropic-only:
+    provider: anthropic
+"""
+
+
+def _fail(msg, code):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def cmd_init():
+    if CONFIG_PATH.exists():
+        _fail(
+            f"Config already exists at {CONFIG_PATH}\n"
+            f"Remove it first if you want to regenerate: rm {CONFIG_PATH}",
+            1,
+        )
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(DEFAULT_CONFIG)
+    print(f"Default config written to {CONFIG_PATH}")
+
+
+def cmd_list():
+    config = _load_config()
+    profiles = config.get("profiles", {})
+    if not profiles:
+        print("No profiles defined in config.")
+        return
+    print("Available profiles:")
+    for name, prof in profiles.items():
+        provider = prof.get("provider", "?")
+        overrides = [k for k in ("opus", "sonnet", "haiku", "subagent", "effort") if k in prof]
+        if overrides:
+            print(f"  {name} → provider={provider} (overrides: {', '.join(overrides)})")
+        else:
+            print(f"  {name} → provider={provider}")
+
+
+def cmd_validate():
+    config = _load_config()
+    providers = config.get("providers", {})
+    profiles = config.get("profiles", {})
+
+    errors = []
+    if not providers:
+        errors.append("No providers defined in config.")
+    if not profiles:
+        errors.append("No profiles defined in config.")
+
+    for name, prof in profiles.items():
+        provider_name = prof.get("provider")
+        if not provider_name:
+            errors.append(f"Profile '{name}': missing 'provider' field.")
+        elif provider_name not in providers:
+            errors.append(
+                f"Profile '{name}': provider '{provider_name}' not found"
+                " in providers."
+            )
+
+    if errors:
+        for e in errors:
+            print(f"  ✗ {e}", file=sys.stderr)
+        sys.exit(2)
+
+    print("Config is valid.")
+    print(f"  Providers: {', '.join(providers.keys())}")
+    print(f"  Profiles: {', '.join(profiles.keys())}")
+
+
+def cmd_add_key(provider):
+    key = os.environ.get("CLAUDE_MODEL_KEY")
+    if key:
+        print(f"Using API key from CLAUDE_MODEL_KEY env var for {provider}")
+    else:
+        key = getpass.getpass(f"API key for {provider}: ")
+
+    key = key.strip()
+    if not key:
+        _fail("No key provided. Aborting.", 1)
+
+    KEYS_DIR.mkdir(parents=True, exist_ok=True)
+    key_file = KEYS_DIR / provider
+    key_file.write_text(key)
+    os.chmod(key_file, 0o600)
+    print(f"Key saved to {key_file}")
+
+
+def _load_config():
+    if not CONFIG_PATH.exists():
+        _fail(
+            f"No config found at {CONFIG_PATH}\n"
+            "Run 'claude-model --init' to create one.",
+            1,
+        )
+    try:
+        config = yaml.safe_load(CONFIG_PATH.read_text())
+    except yaml.YAMLError as e:
+        _fail(f"Malformed YAML in {CONFIG_PATH}: {e}", 2)
+    if config is None:
+        _fail(f"Empty or invalid config at {CONFIG_PATH}", 2)
+    return config
+
+
+def _get_model(role, profile, provider):
+    """Resolve a role's model: profile override > provider default > fallback."""
+    if role in profile and profile[role]:
+        return profile[role]
+    if role in provider and provider[role]:
+        return provider[role]
+    fallbacks = {"sonnet": "opus", "haiku": "sonnet", "subagent": "haiku"}
+    if role in fallbacks:
+        return _get_model(fallbacks[role], profile, provider)
+    return None
+
+
+def resolve_profile(profile_name):
+    config = _load_config()
+    profiles = config.get("profiles", {})
+    providers = config.get("providers", {})
+
+    if profile_name not in profiles:
+        available = ", ".join(profiles.keys())
+        _fail(
+            f"Profile '{profile_name}' not found. Available: {available}\n"
+            "Use --list to see all profiles.",
+            3,
+        )
+
+    profile = profiles[profile_name]
+    provider_name = profile.get("provider")
+
+    if not provider_name or provider_name not in providers:
+        _fail(f"Provider '{provider_name}' not defined in config.", 4)
+
+    provider = providers[provider_name]
+
+    # Read API key (skip for anthropic — uses Claude Code's native auth)
+    if provider_name != "anthropic":
+        key_file = KEYS_DIR / provider_name
+        if not key_file.exists():
+            _fail(
+                f"No API key found for {provider_name}.\n"
+                f"Run 'claude-model --add-key {provider_name}'.",
+                5,
+            )
+        key_mode = key_file.stat().st_mode & 0o777
+        if key_mode != 0o600:
+            _fail(
+                f"Key file {key_file} must be mode 600.\n"
+                f"Fix with: chmod 600 {key_file}",
+                6,
+            )
+        api_key = key_file.read_text().strip()
+    else:
+        api_key = None
+
+    # Resolve models with fallback chain
+    opus = _get_model("opus", profile, provider)
+    sonnet = _get_model("sonnet", profile, provider)
+    haiku = _get_model("haiku", profile, provider)
+    subagent = _get_model("subagent", profile, provider)
+
+    if not opus:
+        _fail(
+            f"Provider '{provider_name}' has no opus model configured."
+            " At least an opus-tier model is required.",
+            4,
+        )
+
+    # Build env — values after || are fallbacks when a role resolves to None
+    env = {
+        "ANTHROPIC_BASE_URL": provider["base_url"],
+        "ANTHROPIC_MODEL": opus,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": opus,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": sonnet or opus,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": haiku or sonnet or opus,
+        "CLAUDE_CODE_SUBAGENT_MODEL": subagent or haiku or sonnet or opus,
+    }
+
+    if "effort" in profile:
+        env["CLAUDE_CODE_EFFORT_LEVEL"] = profile["effort"]
+
+    if api_key:
+        env["ANTHROPIC_AUTH_TOKEN"] = api_key
+
+    return env
+
+
+def build_parser():
+    return argparse.ArgumentParser(
+        prog="claude-model",
+        description="Multi-provider model launcher for Claude Code",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  claude-model                      Use default profile
+  claude-model deepseek             Use "deepseek" profile
+  claude-model kimi                 Use "kimi" profile
+  claude-model glm                  Use "glm" profile
+  claude-model deepseek-heavy       Per-role mixing within DeepSeek
+  claude-model mixed-via-openrouter Cross-provider via OpenRouter
+  claude-model -p "my chat"         Pass args to claude
+  CLAUDE_MODEL_PROFILE=glm claude-model  Env var override
+
+Environment:
+  CLAUDE_MODEL_PROFILE    Override the default profile name
+  CLAUDE_MODEL_KEY        API key for --add-key (non-interactive mode)
+""",
+    )
+
+
+def main():
+    parser = build_parser()
+    parser.add_argument("--list", action="store_true", help="List available profiles")
+    parser.add_argument(
+        "--validate", action="store_true", help="Validate config without launching"
+    )
+    parser.add_argument(
+        "--init", action="store_true", help="Write default config template"
+    )
+    parser.add_argument(
+        "--add-key", metavar="PROVIDER", help="Prompt for and save an API key"
+    )
+    parser.add_argument(
+        "profile", nargs="?", help="Profile name (default: 'default')"
+    )
+    parser.add_argument(
+        "claude_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments to pass to claude",
+    )
+
+    args = parser.parse_args()
+
+    if args.list:
+        cmd_list()
+        return
+    if args.validate:
+        cmd_validate()
+        return
+    if args.init:
+        cmd_init()
+        return
+    if args.add_key:
+        cmd_add_key(args.add_key)
+        return
+
+    profile_name = args.profile or os.environ.get("CLAUDE_MODEL_PROFILE", "default")
+    env = resolve_profile(profile_name)
+
+    for key, value in env.items():
+        os.environ[key] = value
+
+    claude_args = args.claude_args if args.claude_args else []
+    os.execvpe("claude", ["claude"] + claude_args, os.environ)
+
+
+if __name__ == "__main__":
+    main()

@@ -9,11 +9,14 @@ This repository hosts a single provisioning script that sets up Ubuntu 22.04/24.
 ## Development commands
 
 ```bash
-# Lint the scripts (shellcheck)
-shellcheck setup claude-model
+# Lint bash scripts
+shellcheck setup
 
 # Dry-run syntax check (does not execute commands)
 bash -n setup
+
+# Check Python syntax for claude-model
+python3 -c "import py_compile; py_compile.compile('claude-model', doraise=True)"
 
 # Run the script on a target VM
 ./setup
@@ -33,10 +36,10 @@ bash -n setup
 8. **gstack** — clones to `~/.claude/skills/gstack` from garrytan/gstack; runs `./setup`
 9. **Chromium** — system browser for gstack `/browse` and `/qa` skills
 10. **tmux** — opinionated config (prefix C-a, mouse support, 256-color)
-11. **claude-model** — installs session-only DeepSeek v4 launcher to `~/.local/bin/claude-model`
+11. **claude-model** — installs multi-provider model launcher (Python script) to `~/.local/bin/claude-model`; deploys `model-profiles.yaml` to `~/.claude/`
 12. **Verification** — checks every tool was installed; shows next steps
 
-`claude-model` is a standalone launcher that sets DeepSeek env vars and `exec`s `claude`. Session-only — no persistent state. Run `claude-model deepseek` for DeepSeek v4, plain `claude` for Anthropic (default).
+`claude-model` is a Python script that reads YAML profiles, resolves per-role model mappings, exports env vars, and `exec`s `claude`. Supports DeepSeek, Kimi K2.6, GLM-5.1, OpenRouter, and Anthropic. Run `claude-model <profile>` to switch providers, `claude-model --list` to see profiles, `claude-model --add-key <provider>` to save API keys.
 
 Shell safety: `set -euo pipefail`. Root guard (exits if run as root). All destructive steps check for existing state before acting.
 

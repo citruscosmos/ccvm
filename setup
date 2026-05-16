@@ -78,6 +78,7 @@ CURRENT_STEP=0
 TOTAL_STEPS=12
 STEP_START_TIME=0
 TOTAL_START_TIME=$(date +%s)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 _step_header() {
   CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -162,6 +163,7 @@ sudo apt-get install -y -q \
   python3 \
   python3-pip \
   python3-venv \
+  python3-yaml \
   locales \
   libnss3 \
   libatk-bridge2.0-0 \
@@ -473,21 +475,45 @@ fi
 # STEP 11: Model backend launcher
 # ─────────────────────────────────────────────
 _step_header
-info "Installing claude-model (DeepSeek launcher)..."
+info "Installing claude-model (multi-provider launcher)..."
 
-MODEL_TOOL_SRC="$(dirname "$0")/scripts/claude-model"
+MODEL_TOOL_SRC="$SCRIPT_DIR/claude-model"
 MODEL_TOOL_DST="$HOME/.local/bin/claude-model"
+CONFIG_SRC="$SCRIPT_DIR/model-profiles.yaml"
+CONFIG_DST="$HOME/.ccvm/model-profiles.yaml"
+KEYS_DIR="$HOME/.ccvm/keys"
 
 if [[ -f "$MODEL_TOOL_SRC" ]]; then
   mkdir -p "$HOME/.local/bin"
   cp "$MODEL_TOOL_SRC" "$MODEL_TOOL_DST"
+  chmod +x "$MODEL_TOOL_DST"
   success "claude-model installed to ~/.local/bin/claude-model"
+
+  # Deploy default config template if none exists
+  if [[ -f "$CONFIG_SRC" ]]; then
+    if [[ ! -f "$CONFIG_DST" ]]; then
+      cp "$CONFIG_SRC" "$CONFIG_DST"
+      success "model-profiles.yaml deployed to ~/.ccvm/model-profiles.yaml"
+    else
+      info "model-profiles.yaml already exists — skipping"
+    fi
+  fi
+
+  # Create keys directory
+  mkdir -p "$KEYS_DIR"
+  chmod 700 "$KEYS_DIR"
+
   echo ""
   echo "  Usage:"
-  echo "    claude-model deepseek   # Launch Claude Code with DeepSeek v4"
-  echo "    claude                  # Launch Claude Code with Anthropic (default)"
+  echo "    claude-model                  # Use default profile"
+  echo "    claude-model deepseek         # DeepSeek v4"
+  echo "    claude-model kimi             # Kimi K2.6 (set API key first)"
+  echo "    claude-model glm              # GLM-5.1 (set API key first)"
+  echo "    claude-model --list           # List all profiles"
+  echo "    claude-model --add-key kimi   # Save API key for Kimi"
+  echo "    claude                        # Plain Anthropic (default)"
 else
-  warn "scripts/claude-model not found — skipping"
+  warn "claude-model not found at $MODEL_TOOL_SRC — skipping"
 fi
 
 # Ensure ~/.local/bin is on PATH
@@ -537,6 +563,8 @@ verify_tool "Bun"       bun -e "console.log('ok')"
 verify_tool "Claude Code" claude --version
 verify_tool "ripgrep"   rg --version
 verify_tool "Python3"   python3 -c "print('ok')"
+verify_tool "PyYAML"    python3 -c "import yaml" 2>/dev/null
+verify_tool "claude-model" python3 -c "import py_compile; py_compile.compile('$HOME/.local/bin/claude-model', doraise=True)" 2>/dev/null
 verify_tool "tmux"      tmux -V
 
 if [[ -d "$HOME/.claude/skills/gstack" ]]; then
@@ -569,7 +597,10 @@ echo ""
   echo ""
   echo "  2. Launch Claude Code:"
   echo "       claude                  # Anthropic (default)"
-  echo "       claude-model deepseek   # DeepSeek v4"
+  echo "       claude-model            # Uses default profile (DeepSeek)"
+  echo "       claude-model --list     # List all profiles"
+  echo "       claude-model --add-key kimi  # Add Kimi API key"
+  echo "       claude-model kimi       # Kimi K2.6"
   echo ""
   echo "  3. Complete gstack setup:"
   echo "       Follow Step 1 at: https://github.com/garrytan/gstack"

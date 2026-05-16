@@ -1,0 +1,46 @@
+# Provider definitions — base URLs and default model IDs
+# All providers use role-based fields: opus, sonnet, haiku, subagent.
+# Missing fields fall back: sonnet→opus, haiku→sonnet, subagent→haiku.
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com/anthropic
+    opus: deepseek-v4-pro
+    sonnet: deepseek-v4-pro
+    haiku: deepseek-v4-flash
+    subagent: deepseek-v4-flash
+  kimi:
+    base_url: https://platform.moonshot.ai
+    opus: kimi-k2.6
+    haiku: kimi-k2.6-flash
+  glm:
+    base_url: https://open.bigmodel.cn/api/anthropic
+    opus: glm-5.1
+    haiku: glm-5.1-flash
+  openrouter:
+    base_url: https://openrouter.ai/api
+    opus: openai/kimi-k2.6
+    haiku: deepseek/deepseek-v4-flash
+  anthropic:
+    base_url: https://api.anthropic.com
+    opus: claude-opus-4-7
+    sonnet: claude-sonnet-4-6
+    haiku: claude-haiku-4-5
+    subagent: claude-haiku-4-5
+
+# Named profiles — select a provider + optional per-role model overrides
+profiles:
+  default:
+    provider: deepseek
+  deepseek:
+    provider: deepseek
+    effort: max
+  kimi:
+    provider: kimi
+  glm:
+    provider: glm
+  mixed-via-openrouter:
+    provider: openrouter
+    opus: kimi/kimi-k2.6
+    haiku: deepseek/deepseek-v4-flash
+  anthropic-only:
+    provider: anthropic
